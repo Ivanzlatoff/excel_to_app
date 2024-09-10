@@ -9,6 +9,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 import tempfile
 import os
+from PIL import Image
 
 # Set up Streamlit configuration
 st.set_page_config(page_title="B2B Analysis", layout="wide")
@@ -64,14 +65,16 @@ for sheet_name, df in dfs.items():
         one_hawb_per_mawb,
         values="SHP_Chargeable Weight",
         names="SHP_Owning Department ID",
-        title=f"Weight Distribution for {sheet_name}"
+        title=f"Weight Distribution for {sheet_name}",
+        color_discrete_sequence=px.colors.sequential.Plasma  # Specify color sequence
     )
 
     pie_chart_hawb = px.pie(
         department_counts,  # Use the aggregated data
         values="Number of MAWBs",
         names="SHP_Owning Department ID",
-        title=f"HAWB Distribution for {sheet_name}"
+        title=f"HAWB Distribution for {sheet_name}",
+        color_discrete_sequence=px.colors.sequential.Plasma  # Specify color sequence
     )
 
     # Plot the charts
@@ -83,12 +86,16 @@ for sheet_name, df in dfs.items():
     bar_chart_destinations_hawb = px.bar(
         one_hawb_per_mawb.groupby("SHP_House Destination (Air)").size().reset_index(name="Number of HAWBs"),
         x="SHP_House Destination (Air)", y="Number of HAWBs",
-        title=f"Number of MAWB's for each destination in {sheet_name}"
+        title=f"Number of MAWB's for each destination in {sheet_name}",
+        color="Number of HAWBs",  # Color by the value
+        color_continuous_scale=px.colors.sequential.Plasma  # Specify color scale
     )
     bar_chart_destinations_weight = px.bar(
         one_hawb_per_mawb.groupby("SHP_House Destination (Air)")["SHP_Chargeable Weight"].sum().reset_index(),
         x="SHP_House Destination (Air)", y="SHP_Chargeable Weight",
-        title=f"Total chargeable weight of shipments for each destination in {sheet_name}"
+        title=f"Total chargeable weight of shipments for each destination in {sheet_name}",
+        color="SHP_Chargeable Weight",  # Color by the value
+        color_continuous_scale=px.colors.sequential.Plasma  # Specify color scale
     )
 
     st.plotly_chart(bar_chart_destinations_hawb)
@@ -101,12 +108,16 @@ for sheet_name, df in dfs.items():
     bar_chart_top_10_destinations_hawb = px.bar(
         top_10_destinations_hawb,
         x="SHP_House Destination (Air)", y="Number of HAWBs",
-        title=f"Top 10 Destinations by Number of MAWB's in {sheet_name}"
+        title=f"Top 10 Destinations by Number of MAWB's in {sheet_name}",
+        color="Number of HAWBs",  # Color by the value
+        color_continuous_scale=px.colors.sequential.Plasma  # Specify color scale
     )
     bar_chart_top_10_destinations_weight = px.bar(
         top_10_destinations_weight,
         x="SHP_House Destination (Air)", y="SHP_Chargeable Weight",
-        title=f"Top 10 Destinations by Total Chargeable Weight in {sheet_name}"
+        title=f"Top 10 Destinations by Total Chargeable Weight in {sheet_name}",
+        color="SHP_Chargeable Weight",  # Color by the value
+        color_continuous_scale=px.colors.sequential.Plasma  # Specify color scale
     )
 
     st.plotly_chart(bar_chart_top_10_destinations_hawb)
@@ -163,13 +174,22 @@ if st.button("Print Report"):
         width, height = letter
 
         for chart, title in charts:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
-                temp_filename = tmpfile.name
-                save_chart_as_image(chart, temp_filename)
-                c.drawString(72, height - 72, title)
-                c.drawImage(temp_filename, 72, height - 600, width=width - 144, preserveAspectRatio=True)
-                c.showPage()
-                os.remove(temp_filename)
+            # Create a temporary file for saving the chart image
+            temp_filename = None
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
+                    temp_filename = tmpfile.name
+                    save_chart_as_image(chart, temp_filename)
+                    
+                    # Open the image file using Pillow to ensure it is not locked
+                    with Image.open(temp_filename) as img:
+                        c.drawString(72, height - 72, title)
+                        c.drawImage(temp_filename, 72, height - 600, width=width - 144, preserveAspectRatio=True)
+                        c.showPage()
+            finally:
+                # Ensure the temporary file is deleted
+                if temp_filename and os.path.isfile(temp_filename):
+                    os.remove(temp_filename)
 
         c.save()
         buffer.seek(0)
