@@ -43,6 +43,8 @@ with st.sidebar:
 
 # Filter data for all sheets based on selection
 filtered_dfs = {}
+charts = []
+
 for sheet_name, df in dfs.items():
     mask = (
         (df["SHP_Chargeable Weight"].between(*chargeable_weight_selection))
@@ -123,45 +125,122 @@ for sheet_name, df in dfs.items():
     st.plotly_chart(bar_chart_top_10_destinations_hawb)
     st.plotly_chart(bar_chart_top_10_destinations_weight)
 
-# --- TREND LINE FOR THE LAST SHEET ---
-last_sheet = sheet_names[-1]
-st.markdown(f"## Trend Line for {last_sheet}")
+    # --- TOP 10 DESTINATIONS BAR CHARTS AGGREGATED ---
+    # For Chargeable Weight
+    df_weight_by_dest = one_hawb_per_mawb.groupby(["SHP_House Destination (Air)", "SHP_Owning Department ID"])["SHP_Chargeable Weight"].sum().reset_index()
 
-df_last_sheet = filtered_dfs[last_sheet]
+    # Sort by chargeable weight and get top 10 destinations
+    top_10_weight_by_dest = df_weight_by_dest.groupby("SHP_House Destination (Air)").sum().nlargest(10, "SHP_Chargeable Weight").reset_index()
 
-# Assuming weekly data can be derived from SHP_ETD Date
-df_last_sheet['Week'] = pd.to_datetime(df_last_sheet['SHP_ETD Date']).dt.to_period('W').apply(lambda r: r.start_time)
-weekly_data = df_last_sheet.groupby("Week").agg(
-    total_weight=pd.NamedAgg(column="SHP_Chargeable Weight", aggfunc="sum"),
-    mawb_count=pd.NamedAgg(column="MAWB", aggfunc="count")
-).reset_index()
+    # Filter data for top 10 destinations
+    filtered_weight_data = df_weight_by_dest[df_weight_by_dest["SHP_House Destination (Air)"].isin(top_10_weight_by_dest["SHP_House Destination (Air)"])]
+    
+    # Step 1: Sort the data by SHP_Chargeable Weight in descending order
+    filtered_weight_data_sorted = filtered_weight_data.sort_values(by="SHP_Chargeable Weight", ascending=False)
 
-# Convert Week to numerical format for linear regression
-weekly_data['Week_num'] = (weekly_data['Week'] - weekly_data['Week'].min()).dt.days
+    # Step 2: Modify the "SHP_House Destination (Air)" column to include the chargeable weight in the label
+    filtered_weight_data_sorted["Destination"] = (
+        filtered_weight_data_sorted["SHP_House Destination (Air)"] + 
+        " (" + 
+        filtered_weight_data_sorted["SHP_Chargeable Weight"].round(2).astype(str) + 
+        " kg)"
+    )
 
-# Linear regression model
-def add_trend_line(df, x_col, y_col):
-    model = LinearRegression()
-    X = df[[x_col]].values.reshape(-1, 1)
-    y = df[y_col].values
-    model.fit(X, y)
-    trend_line = model.predict(X)
-    return trend_line
+    # Step 3: Create the bar chart with the sorted destinations and new labels
+    bar_chart_top_10_destinations_weight_aggregated = px.bar(
+        filtered_weight_data_sorted,
+        x="SHP_Chargeable Weight",
+        y="SHP_Owning Department ID",
+        color="Destination",  # Use the modified label with weight
+        color_discrete_sequence=px.colors.qualitative.Vivid,
+        orientation="h",
+        height=600,
+        title=f"Top 10 Destination by Total Chargeable Weight Aggregated in {sheet_name}"
+    )
+    
+    st.plotly_chart(bar_chart_top_10_destinations_weight_aggregated)
 
-# Line chart for chargeable weight with trend line
-trend_chart_weight = go.Figure()
-trend_chart_weight.add_trace(go.Scatter(x=weekly_data["Week"], y=weekly_data["total_weight"], mode='markers+lines', name='Total Weight', line=dict(color='blue')))
-trend_chart_weight.add_trace(go.Scatter(x=weekly_data["Week"], y=add_trend_line(weekly_data, "Week_num", "total_weight"), mode='lines', name='Trend Line', line=dict(color='red', width=2)))
-trend_chart_weight.update_layout(title="Weekly Chargeable Weight with Trend Line")
+    # For Number of MAWBs
+    df_mawb_by_dest = one_hawb_per_mawb.groupby(["SHP_House Destination (Air)", "SHP_Owning Department ID"])["HAWB"].size().reset_index(name="Number of MAWBs")
 
-# Line chart for number of MAWBs with trend line
-trend_chart_mawb = go.Figure()
-trend_chart_mawb.add_trace(go.Scatter(x=weekly_data["Week"], y=weekly_data["mawb_count"], mode='markers+lines', name='MAWB Count', line=dict(color='red')))
-trend_chart_mawb.add_trace(go.Scatter(x=weekly_data["Week"], y=add_trend_line(weekly_data, "Week_num", "mawb_count"), mode='lines', name='Trend Line', line=dict(color='blue', width=2)))
-trend_chart_mawb.update_layout(title="Weekly Number of MAWBs with Trend Line")
+    # Sort by number of MAWBs and get top 10 destinations
+    top_10_mawb_by_dest = df_mawb_by_dest.groupby("SHP_House Destination (Air)").sum().nlargest(10, "Number of MAWBs").reset_index()
 
-st.plotly_chart(trend_chart_weight)
-st.plotly_chart(trend_chart_mawb)
+    # Filter data for top 10 destinations
+    filtered_mawb_data = df_mawb_by_dest[df_mawb_by_dest["SHP_House Destination (Air)"].isin(top_10_mawb_by_dest["SHP_House Destination (Air)"])]
+    
+    # Step 1: Sort the data by SHP_Chargeable Weight in descending order
+    filtered_mawb_data_sorted = filtered_mawb_data.sort_values(by="Number of MAWBs", ascending=False)
+
+    # Step 2: Modify the "SHP_House Destination (Air)" column to include the number of MAWB's in the label
+    filtered_mawb_data_sorted["Destination"] = (
+        filtered_mawb_data_sorted["SHP_House Destination (Air)"] + " (" 
+        + filtered_mawb_data_sorted["Number of MAWBs"].round(2).astype(str)
+        + ")"
+    )
+
+    # Step 3: Create the bar chart with the sorted destinations and new labels
+    bar_chart_top_10_destinations_hawb_aggregated = px.bar(
+        filtered_mawb_data_sorted,
+        x="Number of MAWBs",
+        y="SHP_Owning Department ID",
+        color="Destination",  # Use the modified label with weight
+        color_discrete_sequence=px.colors.qualitative.Vivid,
+        orientation="h",
+        height=600,
+        title=f"Top 10 Destination by number of MAWB's with 1 HAWB Aggregated in {sheet_name}"
+    )
+    
+    st.plotly_chart(bar_chart_top_10_destinations_hawb_aggregated)
+
+    # --- TREND LINE  ---
+    st.markdown(f"## Trend Line for {sheet_name}")
+
+    # Assuming weekly data can be derived from SHP_ETD Date
+    filtered_dfs[sheet_name]['Week'] = pd.to_datetime(filtered_df['SHP_ETD Date']).dt.to_period('W').apply(lambda r: r.start_time)
+    weekly_data = filtered_df.groupby("Week").agg(
+        total_weight=pd.NamedAgg(column="SHP_Chargeable Weight", aggfunc="sum"),
+        mawb_count=pd.NamedAgg(column="MAWB", aggfunc="count")
+    ).reset_index()
+
+    # Convert Week to numerical format for linear regression
+    weekly_data['Week_num'] = (weekly_data['Week'] - weekly_data['Week'].min()).dt.days
+
+    # Linear regression model
+    def add_trend_line(df, x_col, y_col):
+        model = LinearRegression()
+        X = df[[x_col]].values.reshape(-1, 1)
+        y = df[y_col].values
+        model.fit(X, y)
+        trend_line = model.predict(X)
+        return trend_line
+
+    # Line chart for chargeable weight with trend line
+    trend_chart_weight = go.Figure()
+    trend_chart_weight.add_trace(go.Scatter(x=weekly_data["Week"], y=weekly_data["total_weight"], mode='markers+lines', name='Total Weight', line=dict(color='blue')))
+    trend_chart_weight.add_trace(go.Scatter(x=weekly_data["Week"], y=add_trend_line(weekly_data, "Week_num", "total_weight"), mode='lines', name='Trend Line', line=dict(color='red', width=2)))
+    trend_chart_weight.update_layout(title="Weekly Chargeable Weight with Trend Line")
+
+    # Line chart for number of MAWBs with trend line
+    trend_chart_mawb = go.Figure()
+    trend_chart_mawb.add_trace(go.Scatter(x=weekly_data["Week"], y=weekly_data["mawb_count"], mode='markers+lines', name='MAWB Count', line=dict(color='red')))
+    trend_chart_mawb.add_trace(go.Scatter(x=weekly_data["Week"], y=add_trend_line(weekly_data, "Week_num", "mawb_count"), mode='lines', name='Trend Line', line=dict(color='blue', width=2)))
+    trend_chart_mawb.update_layout(title="Weekly Number of MAWBs with Trend Line")
+
+    st.plotly_chart(trend_chart_weight)
+    st.plotly_chart(trend_chart_mawb)
+
+    # Add the charts to the list for the PDF report
+    charts.append((pie_chart_weight, f"Weight Distribution for {sheet_name}"))
+    charts.append((pie_chart_hawb, f"HAWB Distribution for {sheet_name}"))
+    charts.append((bar_chart_destinations_hawb, f"Number of MAWB's for each destination in {sheet_name}"))
+    charts.append((bar_chart_destinations_weight, f"Total chargeable weight of shipments for each destination in {sheet_name}"))
+    charts.append((bar_chart_top_10_destinations_hawb, f"Top 10 Destinations by Number of MAWB's in {sheet_name}"))
+    charts.append((bar_chart_top_10_destinations_weight, f"Top 10 Destinations by Total Chargeable Weight in {sheet_name}"))
+    charts.append((bar_chart_top_10_destinations_weight_aggregated, f"Top 10 Destination by Total Chargeable Weight Aggregated in {sheet_name}"))
+    charts.append((bar_chart_top_10_destinations_hawb_aggregated, f"Top 10 Destination by number of MAWB's Aggregated in {sheet_name}"))
+    charts.append((trend_chart_weight, f"Weekly Chargeable Weight with Trend Line for {sheet_name}"))
+    charts.append((trend_chart_mawb, f"Weekly Number of MAWB's with Trend Line for {sheet_name}"))
 
 # Print report button
 if st.button("Print Report"):
@@ -194,17 +273,6 @@ if st.button("Print Report"):
         c.save()
         buffer.seek(0)
         return buffer.getvalue()
-
-    charts = [
-        (pie_chart_weight, "Weight Distribution"),
-        (pie_chart_hawb, "HAWB Distribution"),
-        (bar_chart_destinations_hawb, "Destinations HAWB"),
-        (bar_chart_destinations_weight, "Destinations Weight"),
-        (bar_chart_top_10_destinations_hawb, "Top 10 Destinations HAWB"),
-        (bar_chart_top_10_destinations_weight, "Top 10 Destinations Weight"),
-        (trend_chart_weight, "Weekly Chargeable Weight Trend Line"),
-        (trend_chart_mawb, "Weekly MAWB Count Trend Line"),
-    ]
 
     report = create_pdf_report(charts)
     st.download_button(
